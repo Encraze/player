@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">Spotify Player</string>
+    <string name="login_subtitle">Manage your Spotify playback with custom queue logic</string>
+    <string name="login_with_spotify">Login with Spotify</string>
+</resources>
+
+
+

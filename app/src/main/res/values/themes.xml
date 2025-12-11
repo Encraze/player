@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources xmlns:tools="http://schemas.android.com/tools">
+    <!-- Base application theme. -->
+    <style name="Theme.SpotifyPlayer" parent="Theme.MaterialComponents.DayNight.DarkActionBar">
+        <!-- Primary brand color. -->
+        <item name="colorPrimary">#1DB954</item>
+        <item name="colorPrimaryVariant">#1AA34A</item>
+        <item name="colorOnPrimary">@android:color/white</item>
+        <!-- Secondary brand color. -->
+        <item name="colorSecondary">#1DB954</item>
+        <item name="colorSecondaryVariant">#1AA34A</item>
+        <item name="colorOnSecondary">@android:color/black</item>
+    </style>
+</resources>
