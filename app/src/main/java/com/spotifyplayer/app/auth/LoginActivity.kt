@@ -1,159 +1,84 @@
 package com.spotifyplayer.app.auth
 
 import android.content.Intent
-import android.net.Uri
 import android.os.Bundle
 import android.util.Log
 import android.widget.Toast
 import androidx.appcompat.app.AppCompatActivity
-import androidx.lifecycle.lifecycleScope
-import com.spotifyplayer.app.MainActivity
+import com.spotify.sdk.android.auth.AuthorizationClient
+import com.spotify.sdk.android.auth.AuthorizationRequest
+import com.spotify.sdk.android.auth.AuthorizationResponse
+import com.spotifyplayer.app.BuildConfig
 import com.spotifyplayer.app.R
-import kotlinx.coroutines.launch
 
-/**
- * Login activity that handles Spotify OAuth 2.0 authentication
- */
 class LoginActivity : AppCompatActivity() {
-    
+
     private lateinit var authManager: SpotifyAuthManager
-    
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         setContentView(R.layout.activity_login)
-        
-        try {
-            authManager = SpotifyAuthManager(this)
-            
-            // Check if already logged in
-            if (authManager.isLoggedIn()) {
-                navigateToMain()
-                return
+
+        authManager = SpotifyAuthManager(this)
+
+        startLogin()
+    }
+
+    private fun startLogin() {
+        val request = AuthorizationRequest.Builder(
+            BuildConfig.SPOTIFY_CLIENT_ID,
+            AuthorizationResponse.Type.TOKEN,
+            BuildConfig.SPOTIFY_REDIRECT_URI
+        )
+            .setScopes(
+                arrayOf(
+                    "app-remote-control",
+                    "streaming",
+                    "user-library-read"
+                )
+            )
+            .build()
+
+        AuthorizationClient.openLoginActivity(this, REQUEST_CODE, request)
+    }
+
+    override fun onActivityResult(requestCode: Int, resultCode: Int, intent: Intent?) {
+        super.onActivityResult(requestCode, resultCode, intent)
+
+        if (requestCode != REQUEST_CODE) return
+
+        val response = AuthorizationClient.getResponse(resultCode, intent)
+        when (response.type) {
+            AuthorizationResponse.Type.TOKEN -> {
+                val token = response.accessToken
+                val expiresIn = response.expiresIn.toLong()
+                authManager.saveToken(token, expiresIn)
+                Toast.makeText(this, R.string.login_success, Toast.LENGTH_SHORT).show()
+                goToMain()
             }
-            
-            // Check if this is a redirect callback from Spotify
-            val uri = intent?.data
-            if (uri != null && uri.scheme == "spotifyplayer") {
-                handleAuthorizationResponse(uri)
-            } else {
-                // Setup login button
-                setupLoginButton()
-            }
-        } catch (e: Exception) {
-            Log.e(TAG, "Error in onCreate", e)
-            showError("Initialization error: ${e.message}")
-        }
-    }
-    
-    /**
-     * Setup login button click handler
-     */
-    private fun setupLoginButton() {
-        val loginButton = findViewById<android.widget.Button>(R.id.loginButton)
-        loginButton.setOnClickListener {
-            startSpotifyAuthorization()
-        }
-    }
-    
-    override fun onNewIntent(intent: Intent?) {
-        super.onNewIntent(intent)
-        setIntent(intent)
-        
-        // Handle redirect callback
-        val uri = intent?.data
-        if (uri != null && uri.scheme == "spotifyplayer") {
-            handleAuthorizationResponse(uri)
-        }
-    }
-    
-    /**
-     * Start Spotify authorization flow by opening browser
-     */
-    private fun startSpotifyAuthorization() {
-        try {
-            val authUrl = authManager.buildAuthorizationUrl()
-            val intent = Intent(Intent.ACTION_VIEW, Uri.parse(authUrl))
-            startActivity(intent)
-        } catch (e: Exception) {
-            Log.e(TAG, "Error starting authorization", e)
-            showError("Failed to start authorization: ${e.message}")
-        }
-    }
-    
-    /**
-     * Handle authorization response from Spotify redirect
-     */
-    private fun handleAuthorizationResponse(uri: Uri) {
-        val code = uri.getQueryParameter("code")
-        val error = uri.getQueryParameter("error")
-        
-        when {
-            error != null -> {
-                Log.e(TAG, "Authorization error: $error")
-                showError("Authorization failed: $error")
+            AuthorizationResponse.Type.ERROR -> {
+                val message = response.error ?: "Unknown error"
+                Log.e(TAG, "Auth error: $message")
+                Toast.makeText(this, getString(R.string.login_error, message), Toast.LENGTH_LONG).show()
                 finish()
-            }
-            code != null -> {
-                // Exchange authorization code for access token
-                exchangeCodeForToken(code)
             }
             else -> {
-                Log.e(TAG, "No code or error in redirect URI")
-                showError("Invalid authorization response")
+                // Cancel or other responses
+                Log.w(TAG, "Auth canceled or other response: ${response.type}")
                 finish()
             }
         }
     }
-    
-    /**
-     * Exchange authorization code for access token
-     */
-    private fun exchangeCodeForToken(code: String) {
-        lifecycleScope.launch {
-            try {
-                val result = authManager.exchangeCodeForToken(code)
-                
-                result.onSuccess { tokenResponse ->
-                    Log.d(TAG, "Successfully obtained access token")
-                    Toast.makeText(
-                        this@LoginActivity,
-                        "Login successful!",
-                        Toast.LENGTH_SHORT
-                    ).show()
-                    navigateToMain()
-                }
-                
-                result.onFailure { exception ->
-                    Log.e(TAG, "Failed to exchange code for token", exception)
-                    showError("Login failed: ${exception.message}")
-                    finish()
-                }
-            } catch (e: Exception) {
-                Log.e(TAG, "Error during token exchange", e)
-                showError("Login error: ${e.message}")
-                finish()
-            }
-        }
-    }
-    
-    /**
-     * Navigate to main activity
-     */
-    private fun navigateToMain() {
-        val intent = Intent(this, MainActivity::class.java)
-        intent.flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TASK
+
+    private fun goToMain() {
+        val intent = Intent(this, com.spotifyplayer.app.MainActivity::class.java)
+        intent.flags = Intent.FLAG_ACTIVITY_CLEAR_TOP or Intent.FLAG_ACTIVITY_SINGLE_TOP
         startActivity(intent)
         finish()
     }
-    
-    /**
-     * Show error message
-     */
-    private fun showError(message: String) {
-        Toast.makeText(this, message, Toast.LENGTH_LONG).show()
-    }
-    
+
     companion object {
+        private const val REQUEST_CODE = 1337
         private const val TAG = "LoginActivity"
     }
 }

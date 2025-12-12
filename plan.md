@@ -1,147 +1,232 @@
-# Spotify Playback Manager - Implementation Plan
+# Spotify Playback Manager - Implementation Plan (App Remote primary + Web API where needed)
 
 ## Project Overview
-Android native app that manages Spotify playback with custom queue logic, shuffle algorithm, and playback statistics. The app acts as a remote control for Spotify, maintaining local state and statistics.
+Android native app that controls Spotify playback using the Spotify Android SDK (App Remote) for primary control, with Spotify Web API used where the SDK cannot provide required functionality (e.g., fetching full liked tracks collection, or targeted playback if App Remote cannot play a specific track URI). Local queue, shuffle, and statistics are managed entirely in-app.
 
 ## Technology Stack
-- **Platform**: Android Native (Kotlin/Java)
-- **Database**: SQLite (via Room or SQLiteOpenHelper)
-- **API**: Spotify Web API + Spotify Android SDK (for Connect integration)
-- **Authentication**: OAuth 2.0 Authorization Code Flow with PKCE
-- **Networking**: Retrofit/OkHttp or Volley
-- **Architecture**: MVVM or Clean Architecture
-- **Spotify Connect**: Spotify Android SDK for device discovery and connection management
+- **Platform**: Android (Kotlin)
+- **Playback/Control**: Spotify Android SDK (App Remote + Auth)
+- **Networking**: Spotify Web API via Retrofit/OkHttp (liked tracks fetch, playback fallback when App Remote fails)
+- **Database**: SQLite via Room
+- **Auth Storage**: EncryptedSharedPreferences
+- **Async**: Coroutines/Flows
+- **Architecture**: MVVM/Clean
 
 ---
 
-## Phase 1: Project Setup & Authentication (Foundation)
+## Phase 1: Project Setup & App Remote Auth
 
 ### 1.1 Project Initialization ✅
-**Objective**: Set up Android project with necessary dependencies
-
+**Objective**: Set up project with SDK-only dependencies
 **Steps**:
-1. Create new Android project (minimum SDK 24, target SDK 34+)
-2. Add dependencies to `build.gradle`:
-   - Retrofit + OkHttp for API calls
-   - Gson/Moshi for JSON parsing
-   - Room Database (or SQLiteOpenHelper)
-   - AndroidX Lifecycle components
-   - Coroutines for async operations
-   - Secure SharedPreferences or EncryptedSharedPreferences for token storage
-   - Spotify Android SDK (for Spotify Connect integration)
-     - Add Spotify Maven repository
-     - Include spotify-app-remote or spotify-android-auth SDK as needed
-3. Configure ProGuard rules for API libraries
-4. Set up network security config for API calls
-5. Add internet permission to AndroidManifest.xml
+1. Create Android project (minSdk 24, target 34+).
+2. Add dependencies: Spotify App Remote SDK, Spotify Auth SDK, Room (runtime + compiler), Coroutines, AndroidX Lifecycle, Security Crypto.
+3. Add Spotify Maven repo; configure packaging options if required.
+4. Add permissions: INTERNET, ACCESS_NETWORK_STATE; add `<queries>` for `com.spotify.music`.
+5. Configure theme, icons, and manifest intent filter for redirect URI.
 
-**Deliverable**: Working Android project with dependencies configured
+### 1.2 Spotify Dashboard Registration ✅
+**Objective**: Register for App Remote
+**Steps**:
+1. Create Spotify app; note Client ID.
+2. Add Redirect URI (e.g., `spotifyplayer://callback`) matching manifest.
+3. Register Android package `com.spotifyplayer.app` and signing SHA1 used for builds.
+4. Add testers (or use owner account) for non-public use.
+
+### 1.3 Auth via Spotify Auth SDK ✅
+**Objective**: Obtain access token for App Remote scopes
+**Steps**:
+1. Request token via Spotify Auth SDK (AuthorizationClient) with scopes: `app-remote-control`, `streaming`.
+   - Add `user-library-read` scope for liked tracks fetch via Web API.
+2. Handle redirect in `LoginActivity`, extract token, store with expiration in EncryptedSharedPreferences.
+3. Renew token when expired by re-requesting via Auth SDK.
+4. Surface errors via dialogs/toasts.
 
 ---
 
-### 1.2 Spotify App Registration ✅
-**Objective**: Register app with Spotify and obtain credentials
+## Phase 2: Database Schema & Persistence
 
+### 2.1 Schema Design ✅
+**Objective**: Local storage for tracks, queue, stats, history
+**Tables**:
+- `tracks`: id, name, artists, album_name, album_image_url, duration_ms, uri, added_at, created_at.
+- `track_statistics`: track_id, play_count, last_played_at, total_play_time_ms.
+- `playback_history`: id, track_id, played_at, was_skipped, playback_position.
+- `queue_items`: id, track_id, queue_position, added_at.
+Indexes on ids, play_count/last_played_at, queue_position, played_at.
+
+### 2.2 Database Implementation ✅
+**Objective**: DAOs and repositories
 **Steps**:
-1. Go to Spotify Developer Dashboard (https://developer.spotify.com/dashboard)
-2. Create new app
-3. Note down:
-   - Client ID
-   - Client Secret (optional for PKCE, but good to have)
-4. Add redirect URI: `yourapp://callback` (or custom scheme)
-   - **Note**: No backend/web server needed for mobile apps
-   - This is a custom URL scheme that your Android app will handle via intent filters
-   - Example: `spotifyplayer://callback` or `com.yourapp.spotify://callback`
-5. Configure app settings in dashboard
-
-**Deliverable**: Spotify app credentials (Client ID, Redirect URI)
+1. `AppDatabase` (Room) with entities above.
+2. DAOs: TrackDao, TrackStatisticsDao, PlaybackHistoryDao, QueueDao.
+3. Repositories: TrackRepository, StatisticsRepository, QueueRepository, HistoryRepository.
+4. Basic CRUD and batch helpers; tests for insert/query/update.
 
 ---
 
-### 1.3 OAuth 2.0 Authentication Implementation ✅
-**Objective**: Implement secure authentication flow with token storage
+## Phase 3: Track Ingestion (Web API primary, import fallback)
 
+**Constraint**: App Remote cannot fetch library. Use Spotify Web API to pull liked tracks; provide a manual import fallback (JSON/CSV/user paste) if Web API access is unavailable.
+
+### 3.1 Import Pipeline ✅
+**Objective**: Seed DB with playable track URIs and metadata
 **Steps**:
-1. Create `SpotifyAuthManager` class:
-   - Generate PKCE code verifier and challenge
-   - Build authorization URL with scopes:
-     - `user-read-private`
-     - `user-read-email`
-     - `user-library-read`
-     - `user-modify-playback-state`
-     - `user-read-playback-state`
-     - `user-read-currently-playing`
-   - Handle authorization callback
-   - Exchange authorization code for access token
-   - Store access token and refresh token securely (EncryptedSharedPreferences)
-   - Implement token refresh logic
-2. Create `TokenStorage` class:
-   - Save/load access token
-   - Save/load refresh token
-   - Save/load token expiration time
-   - Clear tokens on logout
-3. Create Login Activity:
-   - Launch Spotify authorization URL in WebView or Custom Tabs
-   - Handle redirect callback
-   - Extract authorization code
-   - Exchange for tokens
-   - Navigate to main app on success
-   - Configure intent filter in AndroidManifest.xml:
-     - Add `<intent-filter>` to handle custom URL scheme
-     - Example: `<data android:scheme="yourapp" android:host="callback" />`
-     - This allows the app to receive the OAuth redirect (no backend needed)
-4. Create `TokenRefreshInterceptor`:
-   - Intercept 401 responses
-   - Automatically refresh token
-   - Retry original request
-5. Test authentication flow:
-   - Login successfully
-   - Verify token storage
-   - Test token refresh
-   - Test logout
+1. Define import format (JSON/CSV asset or user-paste) with track_id, name, artists, album, duration_ms, uri (`spotify:track:...`), image_url.
+2. Build importer to load/overwrite into DB; validate URIs.
+3. Initialize statistics rows on import.
 
-**Deliverable**: Working authentication with persistent login
+### 3.2 Metadata Management ✅
+**Objective**: Store and access track metadata offline
+**Steps**:
+1. Store track name, artists, album name, album image URL, duration, URI in DB (done via TrackEntity and TrackFetcher mapping).
+2. Provide lookup/search by ID and full list via repositories.
+3. Image loading via Glide/Picasso later; URLs stored in DB.
+4. Re-import/update logic uses upsert by track_id (implemented).
 
 ---
 
-### 1.4 API Client Setup ✅
-**Objective**: Create Retrofit client for Spotify Web API
+## Phase 4: Playback Control (App Remote primary, Web API fallback)
 
+### 4.1 Connection & Commands ✅
+**Objective**: Connect and control playback
 **Steps**:
-1. Create `SpotifyApiService` interface with endpoints:
-   - `GET /v1/me/tracks` - Get saved tracks
-   - `PUT /v1/me/player/play` - Start/resume playback
-   - `PUT /v1/me/player/pause` - Pause playback
-   - `GET /v1/me/player/currently-playing` - Get current track
-   - `GET /v1/me/player` - Get playback state
-   - `PUT /v1/me/player/transfer` - Transfer playback
-   - `GET /v1/me/player/devices` - Get available devices
-2. Create data models:
-   - `Track` (id, name, artists, album, duration_ms, uri, etc.)
-   - `SavedTrack` (track, added_at)
-   - `PlaybackState` (is_playing, item, progress_ms, etc.)
-   - `Device` (id, name, type, is_active)
-   - API response wrappers
-3. Create `SpotifyApiClient`:
-   - Configure Retrofit with base URL: `https://api.spotify.com/v1/`
-   - Add authentication interceptor (Bearer token)
-   - Add token refresh interceptor
-   - Add logging interceptor (for debugging)
-   - Handle API errors (rate limits, network errors, etc.)
-4. Create `ApiErrorHandler`:
-   - Parse error responses
-   - Convert to user-friendly messages
-   - Handle rate limiting (429 responses)
-   - Handle authentication errors (401)
+1. `SpotifyRemoteManager`: connect/disconnect on main thread with token/redirect; expose play(uri), pause, resume, skipNext, skipPrevious, queue; subscribe to player state.
+2. `PlaybackController`: wrap remote manager with app logic and error handling; auto-connect before commands.
+3. Handle errors: auth required → re-login; Spotify not installed → prompt; Premium restriction → message.
 
-**Deliverable**: Working API client with all necessary endpoints
+### 4.2 State Monitoring (SDK Events) ✅
+**Objective**: Track playback without Web API
+**Steps**:
+1. Use player state subscription for track/position/duration/isPaused.
+2. Maintain internal state for queue advancement and stats triggers.
+3. Detect external control by comparing last app commands vs incoming state.
+
+### 4.3 Session Handling ✅
+**Objective**: Keep session stable
+**Steps**:
+1. Maintain single App Remote connection; auto-retry on disconnect with backoff.
+2. Surface connection state to UI (connected/disconnected badge).
+3. On reconnect, resubscribe and resync player state into UI.
+4. Basic error surfacing: no Spotify app, auth expired, no network → brief Toast.
 
 ---
 
-## Phase 2: Database Schema & Data Models
+## Phase 5: Queue Management
 
-### 2.1 Database Schema Design ✅
-**Objective**: Design SQLite schema for tracks, statistics, and queue
+### 5.1 Queue Structure ✅
+**Objective**: Local queue with history/upcoming
+**Steps**:
+1. Positions: history -20..-1, current 0, upcoming 1..30 (51 total).
+2. `QueueManager`: initialize, get current/next/previous, upcoming/history slices.
+
+### 5.2 Queue Advancement ✅
+**Objective**: Advance on finish/skip/jump
+**Steps**:
+1. On track end: shift queue, move current to history, append new from shuffle.
+2. On skip: record skip stats, then advance same as end.
+3. On jump: mark skipped tracks above as skipped, set selected as current, rebuild upcoming.
+
+### 5.3 Shuffle Logic
+**Objective**: Least-played-first shuffle
+**Steps**:
+1. `ShuffleManager.getNextShuffleTracks(count)`: order by play_count ASC, last_played_at ASC (NULL oldest), exclude tracks already in queue; fallback to random if needed.
+2. Shuffle button rebuilds upcoming queue; keep current/history.
+
+---
+
+## Phase 6: Statistics & History
+
+### 6.1 Playback Statistics
+**Objective**: Track play/skip with timestamps (single counter)
+**Steps**:
+1. On play start: +1 play_count, update last_played_at, add history entry.
+2. On skip: +2 play_count, update last_played_at, mark history skipped.
+3. On jump: +2 for all skipped-above tracks, update last_played_at for each, mark skipped in history.
+4. `StatisticsUpdater`: recordPlay/recordSkip/recordMultipleSkips with batch updates.
+
+### 6.2 History
+**Objective**: Maintain last 20 tracks
+**Steps**:
+1. Insert history entries, trim to 20.
+2. Expose getHistory, addToHistory, clearHistory (optional).
+3. Integrate with queue positions -20..-1.
+
+---
+
+## Phase 7: User Interface
+
+### 7.1 Track List View
+RecyclerView of imported tracks with search; item shows cover, name, artist, duration; tap to play.
+
+### 7.2 Queue View
+Unified list of history/current/upcoming (51 items), highlight current, allow jump, auto-scroll to current.
+
+### 7.3 Playback Controls UI
+Play/Pause, Next, Previous, Shuffle toggle; update states/icons; disable when not connected.
+
+### 7.4 Current Track Display
+Card with cover, title, artists, progress bar/time; live updates from player state.
+
+### 7.5 Error Handling UI
+Dialogs/snackbars/toasts for auth required, premium needed, Spotify not installed, connection lost.
+
+---
+
+## Phase 8: Background Operation
+
+### 8.1 Foreground Service
+Show notification with track info and controls; keep App Remote connection and state handling alive.
+
+### 8.2 State Persistence
+Save minimal state (current track id/position, queue snapshot, last known playback state) and restore on foreground; queue need not persist across app restarts per requirements.
+
+---
+
+## Phase 9: Testing & Integration
+
+### 9.1 MVP
+Auth (App Remote scopes), import small asset list, connect, play/pause one track, verify state events.
+
+### 9.2 Incremental Add
+Queue + next/previous, stats/history, shuffle, background service, full UI.
+
+---
+
+## Phase 10: Polish & Optimization
+Room query/index tuning, image caching, UI polish/animations, battery-friendly updates, haptics/feedback, robust error copy.
+
+---
+
+## Implementation Order (Suggested)
+1) Phase 1 (setup + auth)  
+2) Phase 3 (import sample list)  
+3) Phase 4 (connect + play/pause)  
+4) Phase 5 (queue basics)  
+5) Phase 6 (stats/history)  
+6) Phase 7 (UI), 8 (background), 9 (testing), 10 (polish)
+
+---
+
+## Notes & Constraints
+- App Remote is primary; Spotify Web API is used only when the SDK cannot fulfill a requirement (liked tracks fetch; targeted playback fallback if SDK cannot play a specific URI on the active device).
+- Track ingestion normally comes from Web API liked-tracks fetch; a manual import remains an option if Web API is unavailable.
+- Queue does not persist across restarts (per requirements) but can be regenerated on startup using shuffle logic and stored tracks.
+- Statistics are local only.
+- Premium may be required for some playback controls.
+- External Spotify control is detected; app pauses its automation until user resumes.
+
+## Success Criteria
+1. User can obtain App Remote token and stay authorized.
+2. Imported tracks stored locally with metadata.
+3. User can browse and play specific tracks (App Remote).
+4. Queue shows 20 history + current + 30 upcoming.
+5. Playback controls work (play, pause, next, previous).
+6. Shuffle uses least-played/oldest logic.
+7. Statistics tracked (play/skip counts, timestamps).
+8. App works in background with notification controls.
+9. External control detected and handled gracefully.
+10. Errors shown in user-friendly popups.
 
 **Steps**:
 1. Create database schema with tables:
@@ -160,9 +245,7 @@ Android native app that manages Spotify playback with custom queue logic, shuffl
    **`track_statistics` table**:
    - `track_id` TEXT PRIMARY KEY REFERENCES tracks(id)
    - `play_count` INTEGER DEFAULT 0
-   - `skip_count` INTEGER DEFAULT 0
    - `last_played_at` INTEGER (timestamp, NULL if never played)
-   - `last_skipped_at` INTEGER (timestamp, NULL if never skipped)
    - `total_play_time_ms` INTEGER DEFAULT 0 (optional)
 
    **`playback_history` table** (for 20 tracks history):
@@ -236,6 +319,7 @@ Android native app that manages Spotify playback with custom queue logic, shuffl
 
 ### 3.1 Fetch All Liked Tracks from Spotify ✅
 **Objective**: Retrieve complete list of user's liked tracks with pagination
+**API Choice**: Use Spotify Web API (`/v1/me/tracks`) for full collection fetch; App Remote cannot fetch library.
 
 **Steps**:
 1. Create `TrackFetcher` class:
@@ -268,6 +352,8 @@ Android native app that manages Spotify playback with custom queue logic, shuffl
    - Update existing tracks if metadata changed
    - Add new tracks
    - Optionally: detect removed tracks (tracks in DB but not in Spotify)
+6. Add manual resync control:
+   - Add a "Resync Library" button in UI to re-run the liked-tracks fetch and refresh the local database (update existing, insert new, optionally flag removed).
 
 **Deliverable**: Complete track collection stored in local database
 
@@ -302,60 +388,39 @@ Android native app that manages Spotify playback with custom queue logic, shuffl
 ## Phase 4: Playback Control & State Management
 
 ### 4.1 Playback Controller Implementation 🔄
-**Objective**: Control Spotify playback via API
+**Objective**: Control Spotify playback via App Remote first; Web API only as fallback for targeted playback.
 
-**Note on Spotify Connect**: 
-- Using Spotify Android SDK (App Remote) for all playback control
-- SDK provides reliable mobile playback: play, pause, skip, queue
-- SDK automatically launches and connects to Spotify app
-- Web API is only used for authentication and fetching tracks
+**Notes**:
+- App Remote can play a specific track by URI; use it for play/resume/next/previous by issuing explicit `play(uri)` calls with the exact track chosen by the app.
+- Avoid SDK `skipNext/skipPrevious` except as a fallback; local queue decides what plays next.
+- If App Remote cannot start the requested track (device state/limitations), fall back to Web API `PUT /v1/me/player/play` with the specific URI.
 
 **Steps**:
 1. Create `PlaybackController` class:
    - `playTrack(trackId: String)`:
-     - Get track URI from database
-     - Call `PUT /v1/me/player/play` with body: `{"uris": ["spotify:track:TRACK_ID"]}`
-     - Handle errors (show popup with error message)
+     - Get track URI from database.
+     - Attempt App Remote `playerApi.play(uri)` on the Spotify app device.
+     - On failure (device not ready/SDK error), fallback to Web API `PUT /v1/me/player/play` with `uris: [spotify:track:TRACK_ID]`.
    - `pausePlayback()`:
-     - Call `PUT /v1/me/player/pause`
-     - Handle errors
+     - Use App Remote `pause`; if unsupported, fallback to Web API `PUT /v1/me/player/pause`.
    - `resumePlayback()`:
-     - Call `PUT /v1/me/player/play` (without URIs, resumes current)
-     - Handle errors
-   - `transferToSpotifyApp()`:
-     - Option A (Web API): 
-       - Call `GET /v1/me/player/devices`
-       - Find Spotify app device (type = "Smartphone" or name contains "Spotify")
-       - Call `PUT /v1/me/player/transfer` with device ID
-     - Option B (Spotify Connect SDK - Recommended for better UX):
-       - Use Spotify Android SDK's Connect API
-       - Initialize Spotify App Remote connection
-       - Transfer playback to Spotify app using SDK methods
-       - Provides better device discovery and connection management
-     - Handle errors
-2. Implement error handling:
-   - Network errors → show popup: "Network error. Please check your connection."
-   - 401 Unauthorized → trigger token refresh, retry
-   - 403 Forbidden → show popup: "Premium account required for playback control."
-   - 404 Not Found → show popup: "Device not found. Please open Spotify app."
-   - 429 Rate Limited → show popup: "Too many requests. Please wait a moment."
-   - Generic errors → show popup with error message from API
+     - Use App Remote `resume` or `play(currentUri)`; fallback to Web API `PUT /v1/me/player/play` without body to resume.
+   - `playNextFromQueue()` / `playPreviousFromQueue()`:
+     - Pull the target track from local queue (positions +1 or -1 relative to current, or via jump).
+     - Call `playTrack(trackId)` so Spotify plays the exact chosen track.
+   - Device selection:
+     - Prefer App Remote connection to the Spotify app on the phone. If unavailable, optionally use Web API device transfer (`/me/player/transfer`) to the phone device ID, then `play`.
+2. Error handling (keep simple for prototype):
+   - Network/auth errors → popup with message; retry manually.
+   - Premium/permission errors → popup with message.
+   - Generic SDK/API errors → popup message.
 3. Create `PlaybackStateMonitor`:
-   - Poll `GET /v1/me/player/currently-playing` every 2-3 seconds when playing
-   - Detect track changes:
-     - Compare current track ID with previous
-     - If different, track finished or skipped
-   - Detect user-controlled playback:
-     - If `is_playing` is true but app didn't send play command
-     - Set app state to "paused" (waiting for user)
-     - Don't send automatic next track
-   - Store current track info:
-     - Track ID
-     - Progress (ms)
-     - Is playing
-     - Device info
+   - Use App Remote player state subscription when connected; optionally fallback to `GET /v1/me/player/currently-playing` polling every 2-3 seconds when not connected.
+   - Detect track changes by comparing track IDs; trigger queue advancement/stats accordingly.
+   - Detect external control by checking state changes without app commands; pause automation until user resumes via app.
+   - Track: track ID, progress (ms), isPaused/isPlaying, device info (if available).
 
-**Deliverable**: Working playback control with error handling
+**Deliverable**: Working playback control with App Remote first, Web API fallback, simple pop-up error handling
 
 ---
 
@@ -376,6 +441,7 @@ Android native app that manages Spotify playback with custom queue logic, shuffl
    - Schedule polling based on track progress
    - Cancel polling when paused
    - Resume polling when resumed
+   - Prefer App Remote player state subscription; fall back to Web API polling only if App Remote is disconnected
 3. Handle edge cases:
    - Track duration unknown → use default polling
    - User seeks track → recalculate end time
@@ -472,7 +538,9 @@ Android native app that manages Spotify playback with custom queue logic, shuffl
    - Remove all skipped tracks from queue
    - Set selected track as current (position 0)
    - Rebuild upcoming queue from shuffle logic
-4. Create `QueueAdvancer` class:
+4. Previous navigation behavior:
+   - The unified queue keeps history at negative positions; when user taps Previous, step through positions -1, -2, … until reaching the oldest available (-20) or until the user plays forward again.
+5. Create `QueueAdvancer` class:
    - `advanceQueue()`: Handle track completion (queue advancement only, no statistics)
    - `skipTrack(trackId: String)`: Handle user skip (calls StatisticsUpdater, then advances queue)
    - `jumpToTrack(position: Int)`: Handle track selection (calls StatisticsUpdater, then rebuilds queue)
@@ -528,14 +596,14 @@ Android native app that manages Spotify playback with custom queue logic, shuffl
      - Add to playback_history table
 2. Update statistics on skip:
    - When user skips track:
-     - Increment `play_count` by 2
-     - Update `last_skipped_at` to current timestamp
-     - Mark in history as skipped
+   - Increment `play_count` by 2 (no separate skip counter)
+   - Update `last_played_at` to current timestamp (treat as recent interaction)
+   - Mark in history as skipped
 3. Update statistics on queue jump:
    - When user selects track from queue:
      - For each track above selected (positions < selected):
        - Increment `play_count` by 2
-       - Update `last_skipped_at`
+       - Update `last_played_at`
        - Mark as skipped in history
 4. Create `StatisticsUpdater` class:
    - `recordPlay(trackId: String)`
@@ -587,6 +655,7 @@ Android native app that manages Spotify playback with custom queue logic, shuffl
      - Filter options (optional)
    - Click listener:
      - On track click: Play track and navigate to playback view
+   - Add "Resync Library" button/action to trigger liked-tracks fetch and database refresh
 2. Create `TrackAdapter`:
    - Bind track data to views
    - Load images (Glide/Picasso)
@@ -706,10 +775,9 @@ Android native app that manages Spotify playback with custom queue logic, shuffl
    - Use AlertDialog for important errors
    - Use Snackbar for transient errors
    - Use Toast for minor notifications
-3. Error recovery:
-   - Retry button for network errors
-   - Auto-retry with exponential backoff
-   - Clear error state on successful operation
+3. Keep prototype simple:
+   - No automatic retries; user can retry by tapping the action again
+   - Clear error state on next successful operation
 
 **Deliverable**: User-friendly error messages
 
@@ -725,7 +793,7 @@ Android native app that manages Spotify playback with custom queue logic, shuffl
    - Extend `Service` or use WorkManager
    - Start as foreground service (show notification)
    - Handle playback state polling
-   - Handle queue advancement
+   - Handle queue advancement, statistics updates, and history updates while in background
    - Continue when app is in background
 2. Create notification:
    - Show current track info
@@ -735,7 +803,7 @@ Android native app that manages Spotify playback with custom queue logic, shuffl
 3. Implement service lifecycle:
    - Start service when playback starts
    - Stop service when playback stops (optional)
-   - Handle service restart (if killed by system)
+   - Handle service restart (if killed by system); on restart regenerate a fresh queue snapshot (current + 30 upcoming + 20 history) from stored tracks and stats
 4. Battery optimization:
    - Request to ignore battery optimization
    - Use efficient polling (duration-based)
@@ -758,11 +826,12 @@ Android native app that manages Spotify playback with custom queue logic, shuffl
    - When app returns to foreground
    - Load saved state
    - Sync with Spotify playback state
+   - Regenerate queue snapshot if needed (queue is not persisted) using shuffle/history logic
    - Update UI
 3. Handle app termination:
    - Save critical state on app close
    - Restore on next launch (if needed)
-   - Queue doesn't need to persist (as per requirements)
+   - Queue doesn't need to persist (as per requirements); regenerate on startup
 
 **Deliverable**: App maintains state across background/foreground
 

@@ -7,12 +7,15 @@ pluginManagement {
 }
 
 dependencyResolutionManagement {
-    repositoriesMode.set(RepositoriesMode.PREFER_SETTINGS)
+    repositoriesMode.set(RepositoriesMode.FAIL_ON_PROJECT_REPOS)
     repositories {
         google()
         mavenCentral()
+        maven { url "https://maven.pkg.github.com/spotify/android-auth" }
+        maven { url "https://maven.pkg.github.com/spotify/android-sdk" }
     }
 }
 
-rootProject.name = "PulseOveR"
-include ':app'
+rootProject.name = "SpotifyPlayer"
+include(":app")
+

@@ -1,9 +1,27 @@
-<?xml version="1.0" encoding="utf-8"?>
 <resources>
     <string name="app_name">Spotify Player</string>
-    <string name="login_subtitle">Manage your Spotify playback with custom queue logic</string>
-    <string name="login_with_spotify">Login with Spotify</string>
+    <string name="login_in_progress">Logging into Spotify\u2026</string>
+    <string name="login_success">Logged in to Spotify</string>
+    <string name="login_error">Login error: %1$s</string>
+    <string name="fetch_tracks">Fetch liked tracks</string>
+    <string name="status_placeholder">Idle</string>
+    <string name="cached_tracks">Cached: %1$d tracks</string>
+    <string name="fetch_started">Fetching your liked tracks\u2026</string>
+    <string name="fetch_success">Fetched %1$d tracks</string>
+    <string name="fetch_error">Error: %1$s</string>
+    <string name="play_toggle_start">Play first</string>
+    <string name="play_toggle_play">Play</string>
+    <string name="play_toggle_pause">Pause</string>
+    <string name="previous">Prev</string>
+    <string name="next">Next</string>
+    <string name="no_tracks">No tracks cached. Fetch first.</string>
+    <string name="playing_track">Playing: %1$s</string>
+    <string name="playback_error">Playback error: %1$s</string>
+    <string name="player_state_placeholder">Player state: unknown</string>
+    <string name="player_state_format">State: %1$s\nTrack: %2$s\nArtist: %3$s\nAlbum: %4$s\nPosition: %5$d / %6$d ms</string>
+    <string name="conn_status_connected">Connected</string>
+    <string name="conn_status_disconnected">Disconnected</string>
+    <string name="conn_retrying">Reconnecting…</string>
+    <string name="conn_failed">Reconnect failed</string>
 </resources>
-
-
 
