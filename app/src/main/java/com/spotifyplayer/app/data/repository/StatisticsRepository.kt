@@ -25,5 +25,15 @@ class StatisticsRepository(private val dao: TrackStatisticsDao) {
 
     suspend fun getLeastPlayed(limit: Int, excludeIds: List<String>): List<String> =
         dao.getLeastPlayed(limit, excludeIds)
+
+    suspend fun incrementPlayCount(trackId: String, delta: Int, timestamp: Long) {
+        if (delta <= 0) return
+        dao.incrementBy(trackId, delta, timestamp)
+    }
+
+    suspend fun incrementPlayCount(trackIds: List<String>, delta: Int, timestamp: Long) {
+        if (delta <= 0 || trackIds.isEmpty()) return
+        dao.incrementByList(trackIds, delta, timestamp)
+    }
 }
 

@@ -26,5 +26,8 @@ interface PlaybackHistoryDao {
         """
     )
     suspend fun trimToLast(keep: Int)
+
+    @Query("DELETE FROM playback_history")
+    suspend fun clearAll()
 }
 

@@ -14,6 +14,7 @@ class QueueManager(context: Context) {
     private val queueDao = db.queueDao()
     private val trackDao = db.trackDao()
     private val statsDao = db.trackStatisticsDao()
+    private val shuffleManager = ShuffleManager(context)
 
     /**
      * Initialize queue if empty: current = first track, upcoming = next up to 30, no history.
@@ -157,30 +158,73 @@ class QueueManager(context: Context) {
     ): List<TrackEntity> = withContext(Dispatchers.IO) {
         if (count <= 0 || allTracks.isEmpty()) return@withContext emptyList()
 
-        // First, try least played ordering (ascending plays, then oldest first so most recent goes last)
-        val leastPlayedIds = statsDao.getLeastPlayed(limit = count, excludeIds = exclude.toList())
-        val leastPlayedTracks = trackDao.getByIds(leastPlayedIds).associateBy { it.id }
-        val orderedLeastPlayed = leastPlayedIds.mapNotNull { leastPlayedTracks[it] }
+        // Delegate to ShuffleManager for consistent shuffle logic
+        shuffleManager.getNextShuffleTracks(
+            count = count,
+            excludeIds = exclude
+        )
+    }
 
-        val missing = count - orderedLeastPlayed.size
-        if (missing <= 0) return@withContext orderedLeastPlayed
+    /**
+     * Rebuild upcoming queue with fresh shuffle.
+     * Called when user clicks shuffle button.
+     * Keeps current track and history, replaces upcoming with new shuffle.
+     *
+     * @return true if shuffle was successful, false if no current track
+     */
+    suspend fun shuffleUpcoming(): Boolean = withContext(Dispatchers.IO) {
+        val ordered = queueDao.getAllOrdered()
+        if (ordered.isEmpty()) return@withContext false
 
-        // Fallback: wrap-around sequential excluding already picked and exclude list
-        val pickedIds = orderedLeastPlayed.map { it.id }.toMutableSet().also { it.addAll(exclude) }
-        val result = orderedLeastPlayed.toMutableList()
+        // Separate current, history, and upcoming
+        val current = ordered.firstOrNull { it.queuePosition == 0 } ?: return@withContext false
+        val history = ordered.filter { it.queuePosition < 0 }.sortedBy { it.queuePosition }
 
-        var idx = (currentIndex + 1) % allTracks.size
-        var looped = false
-        while (result.size < count && !looped) {
-            val candidate = allTracks[idx]
-            if (!pickedIds.contains(candidate.id)) {
-                result.add(candidate)
-                pickedIds.add(candidate.id)
-            }
-            idx = (idx + 1) % allTracks.size
-            looped = idx == (currentIndex + 1) % allTracks.size
+        // Get all track IDs to exclude from shuffle
+        val excludeIds = mutableSetOf<String>().apply {
+            add(current.trackId)
+            history.forEach { add(it.trackId) }
         }
-        result
+
+        // Get fresh shuffle for upcoming queue (30 tracks)
+        val newUpcoming = shuffleManager.getNextShuffleTracks(
+            count = 30,
+            excludeIds = excludeIds
+        )
+
+        if (newUpcoming.isEmpty()) return@withContext false
+
+        // Rebuild queue: history + current + new upcoming
+        val newItems = mutableListOf<QueueItemEntity>()
+
+        // Keep history as-is
+        history.forEach { item ->
+            newItems.add(
+                item.copy(addedAt = System.currentTimeMillis())
+            )
+        }
+
+        // Keep current as-is
+        newItems.add(
+            current.copy(addedAt = System.currentTimeMillis())
+        )
+
+        // Add new upcoming tracks
+        newUpcoming.forEachIndexed { index, track ->
+            newItems.add(
+                QueueItemEntity(
+                    trackId = track.id,
+                    queuePosition = index + 1,
+                    addedAt = System.currentTimeMillis()
+                )
+            )
+        }
+
+        // Replace entire queue
+        queueDao.clear()
+        queueDao.upsertAll(newItems)
+
+        true
     }
 }
 

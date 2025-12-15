@@ -62,6 +62,26 @@ interface TrackStatisticsDao {
 
     @Query(
         """
+        UPDATE track_statistics
+        SET playCount = playCount + :delta,
+            lastPlayedAt = :timestamp
+        WHERE trackId = :trackId
+        """
+    )
+    suspend fun incrementBy(trackId: String, delta: Int, timestamp: Long)
+
+    @Query(
+        """
+        UPDATE track_statistics
+        SET playCount = playCount + :delta,
+            lastPlayedAt = :timestamp
+        WHERE trackId IN (:trackIds)
+        """
+    )
+    suspend fun incrementByList(trackIds: List<String>, delta: Int, timestamp: Long)
+
+    @Query(
+        """
         SELECT trackId, playCount
         FROM track_statistics
         WHERE trackId IN (:ids)

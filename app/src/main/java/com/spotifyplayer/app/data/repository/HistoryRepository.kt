@@ -21,5 +21,9 @@ class HistoryRepository(private val dao: PlaybackHistoryDao) {
     suspend fun trimTo(limit: Int = 20) {
         dao.trimToLast(limit)
     }
+
+    suspend fun clearHistory() {
+        dao.clearAll()
+    }
 }
 

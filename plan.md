@@ -127,7 +127,7 @@ Indexes on ids, play_count/last_played_at, queue_position, played_at.
 2. On skip: record skip stats, then advance same as end.
 3. On jump: mark skipped tracks above as skipped, set selected as current, rebuild upcoming.
 
-### 5.3 Shuffle Logic
+### 5.3 Shuffle Logic ✅
 **Objective**: Least-played-first shuffle
 **Steps**:
 1. `ShuffleManager.getNextShuffleTracks(count)`: order by play_count ASC, last_played_at ASC (NULL oldest), exclude tracks already in queue; fallback to random if needed.
@@ -137,7 +137,7 @@ Indexes on ids, play_count/last_played_at, queue_position, played_at.
 
 ## Phase 6: Statistics & History
 
-### 6.1 Playback Statistics
+### 6.1 Playback Statistics ✅
 **Objective**: Track play/skip with timestamps (single counter)
 **Steps**:
 1. On play start: +1 play_count, update last_played_at, add history entry.
@@ -145,7 +145,7 @@ Indexes on ids, play_count/last_played_at, queue_position, played_at.
 3. On jump: +2 for all skipped-above tracks, update last_played_at for each, mark skipped in history.
 4. `StatisticsUpdater`: recordPlay/recordSkip/recordMultipleSkips with batch updates.
 
-### 6.2 History
+### 6.2 History ✅
 **Objective**: Maintain last 20 tracks
 **Steps**:
 1. Insert history entries, trim to 20.
@@ -550,7 +550,7 @@ Room query/index tuning, image caching, UI polish/animations, battery-friendly u
 
 ---
 
-### 5.3 Shuffle Logic Implementation
+### 5.3 Shuffle Logic Implementation ✅
 **Objective**: Implement custom shuffle based on play statistics
 
 **Steps**:
@@ -585,7 +585,7 @@ Room query/index tuning, image caching, UI polish/animations, battery-friendly u
 
 ## Phase 6: Statistics & History Tracking
 
-### 6.1 Playback Statistics
+### 6.1 Playback Statistics ✅
 **Objective**: Track play counts and timestamps
 
 **Steps**:
@@ -615,7 +615,7 @@ Room query/index tuning, image caching, UI polish/animations, battery-friendly u
 
 ---
 
-### 6.2 Playback History
+### 6.2 Playback History ✅
 **Objective**: Maintain 20-track history for navigation
 
 **Steps**:
