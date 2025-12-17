@@ -3,6 +3,9 @@ package com.spotifyplayer.app
 import android.os.Bundle
 import androidx.appcompat.app.AppCompatActivity
 import android.content.Intent
+import android.content.res.ColorStateList
+import android.view.View
+import android.widget.ImageView
 import android.widget.Button
 import android.widget.TextView
 import android.widget.Toast
@@ -18,10 +21,15 @@ import com.spotifyplayer.app.playback.QueueManager
 import com.spotifyplayer.app.playback.SimplePlayerState
 import com.spotifyplayer.app.playback.StatisticsUpdater
 import com.spotifyplayer.app.ui.QueueAdapter
+import androidx.annotation.ColorRes
+import androidx.core.content.ContextCompat
+import androidx.core.view.ViewCompat
+import coil.load
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.flow.collectLatest
 import androidx.recyclerview.widget.LinearLayoutManager
 import androidx.recyclerview.widget.RecyclerView
+import com.google.android.material.button.MaterialButton
 
 class MainActivity : AppCompatActivity() {
     private lateinit var authManager: SpotifyAuthManager
@@ -29,6 +37,9 @@ class MainActivity : AppCompatActivity() {
     private lateinit var stateMonitor: PlaybackStateMonitor
     private lateinit var queueManager: QueueManager
     private lateinit var statsUpdater: StatisticsUpdater
+    private lateinit var connectionStatusDot: View
+    private lateinit var coverArtView: ImageView
+    private lateinit var playToggleButton: MaterialButton
     private var lastPlayerState: SimplePlayerState? = null
     private var currentPlayingTrackId: String? = null
     private var currentPlayingPosition: Int = 0
@@ -44,19 +55,19 @@ class MainActivity : AppCompatActivity() {
             return
         }
 
-        findViewById<TextView?>(R.id.helloText)?.text = getString(R.string.app_name) + "\nAuth ready"
-
         val statusText = findViewById<TextView>(R.id.statusText)
         val playerStateText = findViewById<TextView>(R.id.playerStateText)
-        val connectionStatus = findViewById<TextView>(R.id.connectionStatus)
+        connectionStatusDot = findViewById(R.id.connectionStatusDot)
+        coverArtView = findViewById(R.id.coverArt)
         val fetchButton = findViewById<Button>(R.id.fetchButton)
-        val playToggleButton = findViewById<Button>(R.id.playToggleButton)
-        val nextButton = findViewById<Button>(R.id.nextButton)
-        val previousButton = findViewById<Button>(R.id.previousButton)
+        playToggleButton = findViewById(R.id.playToggleButton)
+        val nextButton = findViewById<MaterialButton>(R.id.nextButton)
+        val previousButton = findViewById<MaterialButton>(R.id.previousButton)
         val queueList = findViewById<RecyclerView>(R.id.queueList)
         val queueAdapter = QueueAdapter()
         queueList.layoutManager = LinearLayoutManager(this)
         queueList.adapter = queueAdapter
+        setPlayButtonState(false)
         queueAdapter.setOnItemClickListener { item, _ ->
             lifecycleScope.launch {
                 val db = AppDatabase.getInstance(this@MainActivity)
@@ -70,13 +81,13 @@ class MainActivity : AppCompatActivity() {
                     statusText.text = getString(R.string.playback_error, "Cannot jump")
                     return@launch
                 }
-                connectionStatus.text = getString(R.string.conn_retrying)
+                updateConnectionIndicator(ConnectionIndicator.RETRYING)
                 playbackController.ensureConnectedWithRetry()
                 if (targetPos < 0) {
                     currentPlayingTrackId = selectedTrack.id
                     currentPlayingPosition = targetPos
                     refreshQueue(queueAdapter)
-                    statusText.text = getString(R.string.playing_track, selectedTrack.name)
+                    statusText.text = getString(R.string.playing_track, selectedTrack.artists)
                     val result = playbackController.playTrack(selectedTrack.id)
                     result.onFailure { e ->
                         statusText.text = getString(R.string.playback_error, e.message ?: "Unknown")
@@ -168,13 +179,13 @@ class MainActivity : AppCompatActivity() {
                     return@launch
                 }
                 queueManager.ensureInitialized(tracks)
-                connectionStatus.text = getString(R.string.conn_retrying)
+                updateConnectionIndicator(ConnectionIndicator.RETRYING)
                 playbackController.ensureConnectedWithRetry()
 
                 val isPlaying = lastPlayerState?.isPlaying == true
                 if (isPlaying) {
                     playbackController.pause()
-                    playToggleButton.text = getString(R.string.play_toggle_play)
+                    setPlayButtonState(false)
                     return@launch
                 }
 
@@ -208,7 +219,7 @@ class MainActivity : AppCompatActivity() {
                         statsUpdater.recordPlay(current.id, System.currentTimeMillis())
                     }
                 }
-                playToggleButton.text = getString(R.string.play_toggle_pause)
+                setPlayButtonState(true)
             }
         }
 
@@ -227,7 +238,7 @@ class MainActivity : AppCompatActivity() {
                 val historyEntry = if (currentPlayingPosition < 0) {
                     snapshot.firstOrNull { it.first == historyTargetPos }
                 } else null
-                connectionStatus.text = getString(R.string.conn_retrying)
+                updateConnectionIndicator(ConnectionIndicator.RETRYING)
                 playbackController.ensureConnectedWithRetry()
                 if (historyEntry != null && historyTargetPos <= 0) {
                     currentPlayingPosition = historyTargetPos
@@ -276,7 +287,7 @@ class MainActivity : AppCompatActivity() {
                 val snapshot = queueManager.getQueueSnapshot()
                 val historyPrevPos = currentPlayingPosition - 1
                 val historyEntry = snapshot.firstOrNull { it.first == historyPrevPos && it.first < 0 }
-                connectionStatus.text = getString(R.string.conn_retrying)
+                updateConnectionIndicator(ConnectionIndicator.RETRYING)
                 playbackController.ensureConnectedWithRetry()
                 if (historyEntry != null) {
                     currentPlayingPosition = historyPrevPos
@@ -314,19 +325,23 @@ class MainActivity : AppCompatActivity() {
         // Observe player state
         lifecycleScope.launch {
             // initial connect state
-            connectionStatus.text = if (playbackController.isConnected()) {
-                getString(R.string.conn_status_connected)
-            } else {
-                getString(R.string.conn_status_disconnected)
-            }
+            updateConnectionIndicator(
+                if (playbackController.isConnected()) {
+                    ConnectionIndicator.CONNECTED
+                } else {
+                    ConnectionIndicator.DISCONNECTED
+                }
+            )
 
             // try to ensure connection with retry once at start
             val conn = playbackController.ensureConnectedWithRetry()
-            connectionStatus.text = if (conn.isSuccess) {
-                getString(R.string.conn_status_connected)
-            } else {
-                getString(R.string.conn_failed)
-            }
+            updateConnectionIndicator(
+                if (conn.isSuccess) {
+                    ConnectionIndicator.CONNECTED
+                } else {
+                    ConnectionIndicator.FAILED
+                }
+            )
 
             stateMonitor.playerStateFlow().collectLatest { result ->
                 result.onSuccess { state ->
@@ -338,26 +353,19 @@ class MainActivity : AppCompatActivity() {
                         updateCurrentPosition(snapshot, stateTrackId)
                         refreshQueue(queueAdapter)
                     }
-                    val playingLabel = if (state.isPlaying) "playing" else "paused"
                     playerStateText.text = getString(
                         R.string.player_state_format,
-                        playingLabel,
-                        state.trackName ?: "-",
                         state.artistName ?: "-",
                         state.albumName ?: "-",
                         state.positionMs,
                         state.durationMs
                     )
-                    connectionStatus.text = getString(R.string.conn_status_connected)
-                    playToggleButton.text = if (state.isPlaying) {
-                        getString(R.string.play_toggle_pause)
-                    } else {
-                        getString(R.string.play_toggle_play)
-                    }
+                    updateConnectionIndicator(ConnectionIndicator.CONNECTED)
+                    setPlayButtonState(state.isPlaying)
                 }.onFailure {
                     playerStateText.text = getString(R.string.player_state_placeholder)
-                    connectionStatus.text = getString(R.string.conn_status_disconnected)
-                    playToggleButton.text = getString(R.string.play_toggle_play)
+                    updateConnectionIndicator(ConnectionIndicator.DISCONNECTED)
+                    setPlayButtonState(false)
                 }
             }
         }
@@ -377,11 +385,18 @@ class MainActivity : AppCompatActivity() {
                 subtitle = track.artists ?: "",
                 playCount = playCount,
                 isCurrent = track.id == playingTrackId,
-                rawPosition = pos
+                rawPosition = pos,
+                albumImageUrl = track.albumImageUrl
             )
         }
+        val currentAlbumUrl = snapshot.firstOrNull { it.second.id == playingTrackId }?.second?.albumImageUrl
         runOnUiThread {
             adapter.submit(items)
+            coverArtView.load(currentAlbumUrl) {
+                placeholder(R.drawable.album_placeholder)
+                error(R.drawable.album_placeholder)
+                crossfade(true)
+            }
         }
     }
 
@@ -415,5 +430,26 @@ class MainActivity : AppCompatActivity() {
         intent.flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TASK
         startActivity(intent)
         finish()
+    }
+
+    private fun updateConnectionIndicator(status: ConnectionIndicator) {
+        val color = ContextCompat.getColor(this, status.colorRes)
+        ViewCompat.setBackgroundTintList(connectionStatusDot, ColorStateList.valueOf(color))
+        connectionStatusDot.contentDescription = getString(status.contentDescRes)
+    }
+
+    private fun setPlayButtonState(isPlaying: Boolean) {
+        val icon = if (isPlaying) R.drawable.ic_pause else R.drawable.ic_play
+        playToggleButton.setIconResource(icon)
+        playToggleButton.contentDescription = getString(
+            if (isPlaying) R.string.play_toggle_pause else R.string.play_toggle_play
+        )
+    }
+
+    private enum class ConnectionIndicator(@ColorRes val colorRes: Int, val contentDescRes: Int) {
+        CONNECTED(R.color.status_connected, R.string.conn_status_connected),
+        DISCONNECTED(R.color.status_disconnected, R.string.conn_status_disconnected),
+        RETRYING(R.color.status_retrying, R.string.conn_retrying),
+        FAILED(R.color.status_disconnected, R.string.conn_failed)
     }
 }

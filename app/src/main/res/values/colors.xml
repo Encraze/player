@@ -1,12 +1,17 @@
 <resources>
-    <color name="purple_500">#6200EE</color>
-    <color name="purple_700">#3700B3</color>
-    <color name="teal_200">#03DAC5</color>
-    <color name="teal_700">#018786</color>
-    <color name="black">#000000</color>
+    <color name="spotify_background">#121212</color>
+    <color name="spotify_card_surface">#1E1E1E</color>
+    <color name="spotify_card_border">#2C2C2C</color>
+    <color name="spotify_text_primary">#FFFFFF</color>
+    <color name="spotify_text_secondary">#B3B3B3</color>
+    <color name="spotify_control_highlight">#490AA8</color>
+    <color name="spotify_control_secondary">#282828</color>
+    <color name="queue_item_bg">#1F1F1F</color>
+    <color name="queue_item_current_bg">#2E2E2E</color>
     <color name="white">#FFFFFF</color>
+    <color name="status_connected">#1ED760</color>
+    <color name="status_disconnected">#FF5A5A</color>
+    <color name="status_retrying">#FFA726</color>
     <color name="ic_launcher_background">#121212</color>
-    <color name="queue_item_bg">#FFFFFF</color>
-    <color name="queue_item_current_bg">#CFE9FF</color>
 </resources>
 

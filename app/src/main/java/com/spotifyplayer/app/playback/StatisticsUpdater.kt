@@ -153,3 +153,4 @@ class StatisticsUpdater(context: Context) {
         historyRepo.clearHistory()
     }
 }
+

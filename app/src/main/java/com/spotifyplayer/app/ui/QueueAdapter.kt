@@ -4,8 +4,11 @@ import android.view.LayoutInflater
 import android.view.View
 import android.view.ViewGroup
 import android.widget.TextView
+import androidx.core.content.ContextCompat
 import androidx.recyclerview.widget.RecyclerView
 import com.spotifyplayer.app.R
+import android.widget.ImageView
+import coil.load
 
 data class QueueDisplayItem(
     val positionLabel: String,
@@ -13,7 +16,8 @@ data class QueueDisplayItem(
     val subtitle: String,
     val playCount: Long,
     val isCurrent: Boolean,
-    val rawPosition: Int
+    val rawPosition: Int,
+    val albumImageUrl: String?
 )
 
 class QueueAdapter : RecyclerView.Adapter<QueueAdapter.VH>() {
@@ -47,14 +51,31 @@ class QueueAdapter : RecyclerView.Adapter<QueueAdapter.VH>() {
         private val titleText: TextView = itemView.findViewById(R.id.titleText)
         private val subtitleText: TextView = itemView.findViewById(R.id.subtitleText)
         private val playCountText: TextView = itemView.findViewById(R.id.playCountText)
+        private val coverArt: ImageView = itemView.findViewById(R.id.albumArt)
 
         fun bind(item: QueueDisplayItem) {
             positionText.text = item.positionLabel
             titleText.text = item.title
             subtitleText.text = item.subtitle
-            playCountText.text = "plays: ${item.playCount}"
-            val bgRes = if (item.isCurrent) R.color.queue_item_current_bg else R.color.queue_item_bg
-            itemView.setBackgroundResource(bgRes)
+            playCountText.text = if (item.playCount <= 0) "New" else "${item.playCount} plays"
+            val context = itemView.context
+            val backgroundColor = ContextCompat.getColor(
+                context,
+                if (item.isCurrent) R.color.queue_item_current_bg else R.color.queue_item_bg
+            )
+            itemView.setBackgroundColor(backgroundColor)
+            positionText.setTextColor(
+                ContextCompat.getColor(
+                    context,
+                    if (item.isCurrent) R.color.spotify_text_primary else R.color.spotify_text_secondary
+                )
+            )
+            coverArt.alpha = if (item.isCurrent) 1.0f else 0.7f
+            coverArt.load(item.albumImageUrl) {
+                placeholder(R.drawable.album_placeholder)
+                error(R.drawable.album_placeholder)
+                crossfade(true)
+            }
             itemView.setOnClickListener {
                 onItemClick?.invoke(item, bindingAdapterPosition)
             }
